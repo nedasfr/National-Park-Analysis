@@ -1,0 +1,456 @@
+---
+title: "Interactive Map"
+author: "Neda Safari"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(highcharter)
+
+# Load your data
+MortalityData <- read.csv("../data/mortality_clean.csv")
+NPVisit <- read.csv("../data/NPVisitCleaned.csv")
+
+# Create a function to standardize park names for matching
+# This function takes a park name and simplifies it by:
+standardize_name <- function(name) {
+  name %>%
+    tolower() %>%  # Convert everything to lowercase (e.g., "Yosemite" becomes "yosemite")
+    str_remove_all("national park|national monument|national recreation area") %>%  # Remove common park designations
+    str_remove_all("\\b(the|and|of)\\b") %>%  # Remove filler words like "the", "and", "of"
+    str_squish() %>%  # Replace multiple spaces with a single space
+    str_trim()  # Remove leading and trailing whitespace
+}
+
+# Add a new column to MortalityData with the standardized park name
+# This creates "park_std" which will be used for matching
+MortalityData <- MortalityData %>%
+  mutate(park_std = standardize_name(park))
+
+# Add a new column to NPVisit with the standardized park name
+# Now both datasets have a "park_std" column with comparable names
+NPVisit <- NPVisit %>%
+  mutate(park_std = standardize_name(Parkname))
+
+# Count how many deaths occurred at each park
+# group_by(park, park_std) groups rows by both original and standardized names
+# summarize(total_deaths = n()) counts the number of rows (deaths) in each group
+# .groups = "drop" removes the grouping structure after summarizing
+parkDeaths <- MortalityData %>%
+  group_by(park, park_std) %>%
+  summarize(total_deaths = n(), .groups = "drop")
+
+# Create a manual mapping for ALL 108 parks that don't match automatically
+# Add park names and their coordinates here
+manual_coords <- tibble(
+  park_std = c(
+    "acadia",
+    "allegheny portage railroad national historic site",
+    "amistad",
+    "anacostia park",
+    "apostle islands national lakeshore",
+    "appalachian national scenic trail",
+    "assateague island national seashore",
+    "baltimore-washington parkway",
+    "big bend",
+    "big cypress national preserve",
+    "big south fork national river recreation area",
+    "big thicket national preserve",
+    "blue ridge parkway",
+    "bluestone national scenic river",
+    "boston national historical park",
+    "buffalo national river",
+    "canaveral national seashore",
+    "cape cod national seashore",
+    "cape hatteras national seashore",
+    "cape lookout national seashore",
+    "chattahoochee river",
+    "chesapeake & ohio canal national historical park",
+    "chickamauga & chattanooga national military park",
+    "clara barton national historic site",
+    "colonial national historical park",
+    "coronado national memorial",
+    "craters moon & preserve",
+    "cumberland gap national historical park",
+    "cumberland island national seashore",
+    "delaware water gap",
+    "denali & preserve",
+    "eisenhower national historic site",
+    "everglades",
+    "fire island national seashore",
+    "first state national historical park",
+    "fort bowie national historic site",
+    "fort foote park",
+    "fort vancouver national historic site",
+    "fredericksburg & spotsylvania national military park",
+    "friendship hill national historic site",
+    "gauley river",
+    "gettysburg national military park",
+    "glacier bay & preserve",
+    "glen echo park",
+    "golden spike national historical park",
+    "great falls park",
+    "great sand dunes & preserve",
+    "great smoky mountains",
+    "gulf islands national seashore",
+    "harpers ferry national historical park",
+    "hawaii volcanoes",
+    "home franklin d roosevelt national historic site",
+    "hopewell culture national historical park",
+    "independence national historical park",
+    "isle royale",
+    "jean lafitte national historical park & preserve",
+    "kaloko-honokohau national historical park",
+    "katmai & preserve",
+    "kenilworth park & aquatic gardens",
+    "kennesaw mountain national battlefield park",
+    "kings mountain national military park",
+    "klondike gold rush national historical park",
+    "lake clark & preserve",
+    "lake meredith",
+    "little river canyon national preserve",
+    "lyndon b johnson national historical park",
+    "manassas national battlefield park",
+    "minute man national historical park",
+    "mississippi national river & recreation area",
+    "missouri national recreational river",
+    "mojave national preserve",
+    "morristown national historical park",
+    "mount rushmore national memorial",
+    "natchez trace parkway",
+    "national capital parks-east",
+    "national mall & memorial parks",
+    "new river gorge national river",
+    "niobrara national scenic river",
+    "obed wild & scenic river",
+    "oxon cove park & oxon hill farm",
+    "ozark national scenic riverways",
+    "padre island national seashore",
+    "paterson great falls national historical park",
+    "pea ridge national military park",
+    "pecos national historical park",
+    "petersburg national battlefield",
+    "pictured rocks national lakeshore",
+    "point reyes national seashore",
+    "president's park (white house)",
+    "presidio san francisco",
+    "redwood national state parks",
+    "richmond national battlefield park",
+    "rock creek park",
+    "saint croix island international historic site",
+    "saint croix national scenic riverway",
+    "san antonio missions national historical park",
+    "san francisco maritime national historical park",
+    "san juan island national historical park",
+    "saratoga national historical park",
+    "sequoia & kings canyon s",
+    "shenandoah",
+    "sleeping bear dunes national lakeshore",
+    "suitland",
+    "upper delaware scenic & recreational river",
+    "valley forge national historical park",
+    "whiskeytown",
+    "wilson's creek national battlefield",
+    "wrangell - st elias & reserve"
+  ),
+  lat = c(
+    44.3386,   # Acadia
+    40.4564,   # Allegheny Portage Railroad
+    29.5347,   # Amistad
+    38.8900,   # Anacostia Park
+    47.0198,   # Apostle Islands
+    40.0000,   # Appalachian Trail (midpoint)
+    38.0525,   # Assateague Island
+    39.0300,   # Baltimore-Washington Parkway
+    29.2500,   # Big Bend
+    25.9739,   # Big Cypress
+    36.5417,   # Big South Fork
+    30.4575,   # Big Thicket
+    36.0000,   # Blue Ridge Parkway (midpoint)
+    37.6139,   # Bluestone
+    42.3736,   # Boston
+    36.0408,   # Buffalo National River
+    28.7619,   # Canaveral
+    41.9268,   # Cape Cod
+    35.3582,   # Cape Hatteras
+    34.9876,   # Cape Lookout
+    34.0094,   # Chattahoochee River
+    39.4582,   # Chesapeake & Ohio Canal
+    34.9404,   # Chickamauga & Chattanooga
+    38.9675,   # Clara Barton
+    37.2275,   # Colonial
+    31.3450,   # Coronado
+    43.4162,   # Craters of the Moon
+    36.5925,   # Cumberland Gap
+    30.8535,   # Cumberland Island
+    41.1167,   # Delaware Water Gap
+    63.1148,   # Denali
+    39.8069,   # Eisenhower
+    25.2866,   # Everglades
+    40.7325,   # Fire Island
+    39.8282,   # First State
+    32.1542,   # Fort Bowie
+    38.7745,   # Fort Foote Park
+    45.6247,   # Fort Vancouver
+    38.2996,   # Fredericksburg & Spotsylvania
+    39.7850,   # Friendship Hill
+    38.1367,   # Gauley River
+    39.8111,   # Gettysburg
+    58.6650,   # Glacier Bay
+    38.9676,   # Glen Echo Park
+    41.6197,   # Golden Spike
+    38.9984,   # Great Falls Park
+    37.7916,   # Great Sand Dunes
+    35.6118,   # Great Smoky Mountains
+    30.3950,   # Gulf Islands
+    39.3232,   # Harpers Ferry
+    19.4194,   # Hawaii Volcanoes
+    41.7682,   # Home of Franklin D Roosevelt
+    39.3518,   # Hopewell Culture
+    39.9496,   # Independence
+    47.9959,   # Isle Royale
+    29.8550,   # Jean Lafitte
+    19.6781,   # Kaloko-Honokohau
+    58.5970,   # Katmai
+    38.9078,   # Kenilworth Park & Aquatic Gardens
+    33.9815,   # Kennesaw Mountain
+    35.1390,   # Kings Mountain
+    59.4600,   # Klondike Gold Rush
+    60.9666,   # Lake Clark
+    35.6969,   # Lake Meredith
+    34.3870,   # Little River Canyon
+    30.2463,   # Lyndon B Johnson
+    38.8130,   # Manassas
+    42.4495,   # Minute Man
+    44.9778,   # Mississippi National River
+    42.7831,   # Missouri National Recreational River
+    35.1406,   # Mojave
+    40.7967,   # Morristown
+    43.8791,   # Mount Rushmore
+    33.7500,   # Natchez Trace Parkway (midpoint)
+    38.8861,   # National Capital Parks-East
+    38.8895,   # National Mall & Memorial Parks
+    37.8733,   # New River Gorge
+    42.8064,   # Niobrara
+    36.1144,   # Obed Wild & Scenic River
+    38.7909,   # Oxon Cove Park & Oxon Hill Farm
+    37.1344,   # Ozark National Scenic Riverways
+    27.3689,   # Padre Island
+    40.9164,   # Paterson Great Falls
+    36.4528,   # Pea Ridge
+    35.5500,   # Pecos
+    37.2146,   # Petersburg
+    46.5653,   # Pictured Rocks
+    38.0497,   # Point Reyes
+    38.8977,   # President's Park (White House)
+    37.7989,   # Presidio of San Francisco
+    41.2132,   # Redwood
+    37.4404,   # Richmond
+    38.9597,   # Rock Creek Park
+    45.1287,   # Saint Croix Island
+    45.8983,   # Saint Croix National Scenic Riverway
+    29.3366,   # San Antonio Missions
+    37.8086,   # San Francisco Maritime
+    48.5300,   # San Juan Island
+    43.0028,   # Saratoga
+    36.4864,   # Sequoia & Kings Canyon
+    38.5326,   # Shenandoah
+    44.8606,   # Sleeping Bear Dunes
+    38.8462,   # Suitland
+    41.6583,   # Upper Delaware Scenic & Recreational River
+    40.0962,   # Valley Forge
+    40.6350,   # Whiskeytown
+    37.1302,   # Wilson's Creek
+    61.7103    # Wrangell-St. Elias
+  ),
+  lon = c(
+    -68.2733,  # Acadia
+    -78.6100,  # Allegheny Portage Railroad
+    -101.0775, # Amistad
+    -76.9600,  # Anacostia Park
+    -90.6560,  # Apostle Islands
+    -78.0000,  # Appalachian Trail (midpoint)
+    -75.2444,  # Assateague Island
+    -76.8500,  # Baltimore-Washington Parkway
+    -103.2500, # Big Bend
+    -81.0839,  # Big Cypress
+    -84.7167,  # Big South Fork
+    -94.3925,  # Big Thicket
+    -80.0000,  # Blue Ridge Parkway (midpoint)
+    -80.8711,  # Bluestone
+    -71.0570,  # Boston
+    -92.8803,  # Buffalo National River
+    -80.7494,  # Canaveral
+    -70.0267,  # Cape Cod
+    -75.5500,  # Cape Hatteras
+    -76.3416,  # Cape Lookout
+    -84.2809,  # Chattahoochee River
+    -77.7500,  # Chesapeake & Ohio Canal
+    -85.2547,  # Chickamauga & Chattanooga
+    -77.1383,  # Clara Barton
+    -76.6122,  # Colonial
+    -110.3200, # Coronado
+    -113.5161, # Craters of the Moon
+    -83.6642,  # Cumberland Gap
+    -81.4543,  # Cumberland Island
+    -74.9050,  # Delaware Water Gap
+    -151.1926, # Denali
+    -77.2311,  # Eisenhower
+    -80.8987,  # Everglades
+    -73.1089,  # Fire Island
+    -75.5465,  # First State
+    -109.4497, # Fort Bowie
+    -77.0192,  # Fort Foote Park
+    -122.6615, # Fort Vancouver
+    -77.5186,  # Fredericksburg & Spotsylvania
+    -79.9342,  # Friendship Hill
+    -81.0031,  # Gauley River
+    -77.2311,  # Gettysburg
+    -136.9000, # Glacier Bay
+    -77.1403,  # Glen Echo Park
+    -112.5485, # Golden Spike
+    -77.2525,  # Great Falls Park
+    -105.5943, # Great Sand Dunes
+    -83.4895,  # Great Smoky Mountains
+    -87.0300,  # Gulf Islands
+    -77.7383,  # Harpers Ferry
+    -155.2885, # Hawaii Volcanoes
+    -73.9338,  # Home of Franklin D Roosevelt
+    -83.0641,  # Hopewell Culture
+    -75.1480,  # Independence
+    -88.5485,  # Isle Royale
+    -90.1250,  # Jean Lafitte
+    -156.0250, # Kaloko-Honokohau
+    -155.0000, # Katmai
+    -76.9444,  # Kenilworth Park & Aquatic Gardens
+    -84.5794,  # Kennesaw Mountain
+    -81.3936,  # Kings Mountain
+    -135.3150, # Klondike Gold Rush
+    -153.4166, # Lake Clark
+    -101.6981, # Lake Meredith
+    -85.6047,  # Little River Canyon
+    -98.6200,  # Lyndon B Johnson
+    -77.5211,  # Manassas
+    -71.3083,  # Minute Man
+    -93.2650,  # Mississippi National River
+    -97.3903,  # Missouri National Recreational River
+    -115.5144, # Mojave
+    -74.5394,  # Morristown
+    -103.4591, # Mount Rushmore
+    -88.0000,  # Natchez Trace Parkway (midpoint)
+    -76.9722,  # National Capital Parks-East
+    -77.0200,  # National Mall & Memorial Parks
+    -81.0636,  # New River Gorge
+    -100.0836, # Niobrara
+    -84.9261,  # Obed Wild & Scenic River
+    -77.0164,  # Oxon Cove Park & Oxon Hill Farm
+    -91.5486,  # Ozark National Scenic Riverways
+    -97.3128,  # Padre Island
+    -74.1736,  # Paterson Great Falls
+    -94.0353,  # Pea Ridge
+    -105.6800, # Pecos
+    -77.3839,  # Petersburg
+    -86.4489,  # Pictured Rocks
+    -122.8736, # Point Reyes
+    -77.0365,  # President's Park (White House)
+    -122.4662, # Presidio of San Francisco
+    -124.0046, # Redwood
+    -77.3400,  # Richmond
+    -77.0500,  # Rock Creek Park
+    -67.1317,  # Saint Croix Island
+    -92.3667,  # Saint Croix National Scenic Riverway
+    -98.4861,  # San Antonio Missions
+    -122.4192, # San Francisco Maritime
+    -123.0600, # San Juan Island
+    -73.5883,  # Saratoga
+    -118.5658, # Sequoia & Kings Canyon
+    -78.3499,  # Shenandoah
+    -86.0517,  # Sleeping Bear Dunes
+    -76.9280,  # Suitland
+    -75.0333,  # Upper Delaware Scenic & Recreational River
+    -75.4400,  # Valley Forge
+    -122.5173, # Whiskeytown
+    -93.4319,  # Wilson's Creek
+    -142.9857  # Wrangell-St. Elias
+  )
+)
+
+# Join the death counts with the park location data
+# left_join keeps all parks from parkDeaths and adds matching data from NPVisit
+# by = "park_std" means we're matching on the standardized park names
+park_map_data <- parkDeaths %>%
+  left_join(NPVisit %>% select(park_std, lat, lon), by = "park_std")
+
+# Find parks that are missing coordinates after the first join
+missing_coords <- park_map_data %>%
+  filter(is.na(lat) | is.na(lon))
+
+# If there are parks missing coordinates, try to fill them from manual_coords
+if(nrow(missing_coords) > 0) {
+  message("\nWarning: The following parks were missing coordinates and have been filled manually:")
+  print(missing_coords %>% select(park, total_deaths))
+  
+  # Update park_map_data by filling in manual coordinates where available
+  # coalesce() picks the first non-NA value, so it uses NPVisit coords first,
+  # then falls back to manual_coords if NPVisit coords are missing
+  park_map_data <- park_map_data %>%
+    left_join(manual_coords, by = "park_std", suffix = c("", "_manual")) %>%
+    mutate(
+      lat = coalesce(lat, lat_manual),    # Use NPVisit lat, or manual lat if NA
+      lon = coalesce(lon, lon_manual)     # Use NPVisit lon, or manual lon if NA
+    ) %>%
+    select(-lat_manual, -lon_manual)  # Remove the temporary manual columns
+}
+# Remove parks that still don't have coordinates after manual mapping
+# filter(!is.na(lat) & !is.na(lon)) keeps only parks with valid coordinates
+# mutate(z = total_deaths) creates a "z" column (needed by highcharter for bubble size)
+park_map_data <- park_map_data %>%
+  filter(!is.na(lat) & !is.na(lon)) %>%
+  mutate(z = total_deaths)
+write.csv(park_map_data, "../data/park_map_data.csv")
+```
+
+
+```{r}
+library(tidyverse)
+library(highcharter)
+park_map_data <- read.csv("../data/park_map_data.csv")
+# Create the interactive map
+# hcmap() creates a base map of the United States
+# "countries/us/us-all" specifies we want a US map
+# nullColor sets the color for states/areas without data
+# borderWidth sets how thick the state borders are
+# showInLegend = FALSE hides the base map from the legend
+hcmap("countries/us/us-all", 
+      nullColor = "#d3d3d3",
+      borderWidth = 0.5,
+      showInLegend = FALSE) %>%
+  # hc_add_series adds a new layer to the map - in this case, bubbles
+  hc_add_series(
+    data = park_map_data,  # The data frame with park locations and death counts
+    type = "mapbubble",  # Create bubbles on the map
+    name = "Deaths",  # Legend label
+    minSize = 5,  # Smallest bubble size (in pixels)
+    maxSize = 50,  # Largest bubble size (in pixels)
+    color = "#FF0000",  # Bubble color (red)
+    dataLabels = list(enabled = FALSE)  # Don't show labels on the bubbles themselves
+  ) %>%
+  # hc_tooltip configures what appears when you hover over a bubble
+  hc_tooltip(
+    useHTML = TRUE,  # Allow HTML formatting in the tooltip
+    headerFormat = '',  # No header in the tooltip
+    # pointFormat defines what text shows: park name and death count
+    pointFormat = "<b>{point.park}</b><br/>Total Deaths: {point.total_deaths}"
+  ) %>%
+  # hc_mapNavigation adds zoom and pan controls to the map
+  hc_mapNavigation(enabled = TRUE) %>%
+  # hc_title adds a title at the top of the map
+  hc_title(text = "National Park Mortality Counts")
+```
+

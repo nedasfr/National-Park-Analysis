@@ -1,0 +1,267 @@
+---
+title: "Exploring deaths in National Parks in the U.S."
+author: "Jackson DeCook, Neda Safari, Kalex Robedo, Ainsley Lotito"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    social: menu
+    source_code: embed 
+    runtime: shiny
+---
+
+```{r setup, include=FALSE}
+# Libraries
+library(highcharter)
+library(dplyr)
+library(viridisLite)
+library(forecast)
+library(treemap)
+library(flexdashboard) 
+library(shiny)
+library(plotly)
+library(readr)
+library(stringr)
+library(tidyr)
+library(tidyverse)
+library(crosstalk)
+library(DT)
+library(ggplot2)
+
+# Highcharter theme
+thm <- 
+  hc_theme(
+    colors = c("#1a6ecc", "#434348", "#90ed7d"),
+    chart = list(
+      backgroundColor = "transparent",
+      style = list(fontFamily = "Source Sans Pro")
+    ),
+    xAxis = list(
+      gridLineWidth = 1
+    )
+  ) 
+
+```
+
+
+
+# About This Dashboard {data-length="225"}
+
+The source of this data was the Tidy Tuesday data set involving national park visitation rates and boundaries, combined with National Park Service (NPS) mortality data. This dashboard allows exploration of park-level death counts, common causes of death, and age groups most frequently affected, providing insight into safety trends and potential risk factors for visitors. 
+
+The *Interactive Mortality Map* displays total deaths at all U.S. national parks. Users can zoom in, hover over parks to see death counts, and compare relative risk across locations. The *National Park Death Trends Search Tool* provides individual park death counts, including associated age ranges and causes of death. The *Deaths by Cause and Age Range* from the cause of death drop-down menu to explore how deaths are distributed across age ranges.The *Death Rate per 1 Million Visitors Across All Parks by Year* plot provides a visitor-adjusted view of mortality trends over time, allowing users to track changes in death rates by year.
+
+Interestingly, we found that of drowning deaths in national parks, many were within the 15-24 age range instead of the expected 0-14 age range. This is likely due to the heightened awareness and regulations surrounding drowning safety in children, while these are softened in teenagers and young adults. Also, other factors such as alcohol could affect the increase in drowning deaths in this age group.
+
+
+## Column {data-width="600"}
+
+### Interactive Mortality Map
+
+```{r}
+park_map_data <- read.csv("../data/park_map_data.csv")
+# Create the interactive map
+# hcmap() creates a base map of the United States
+# "countries/us/us-all" specifies we want a US map
+# nullColor sets the color for states/areas without data
+# borderWidth sets how thick the state borders are
+# showInLegend = FALSE hides the base map from the legend
+hcmap("countries/us/us-all", 
+      nullColor = "#d3d3d3",
+      borderWidth = 0.5,
+      showInLegend = FALSE) %>%
+  # hc_add_series adds a new layer to the map - in this case, bubbles
+  hc_add_series(
+    data = park_map_data,  # The data frame with park locations and death counts
+    type = "mapbubble",  # Create bubbles on the map
+    name = "Deaths",  # Legend label
+    minSize = 5,  # Smallest bubble size (in pixels)
+    maxSize = 50,  # Largest bubble size (in pixels)
+    color = "#FF0000",  # Bubble color (red)
+    dataLabels = list(enabled = FALSE)  # Don't show labels on the bubbles themselves
+  ) %>%
+  # hc_tooltip configures what appears when you hover over a bubble
+  hc_tooltip(
+    useHTML = TRUE,  # Allow HTML formatting in the tooltip
+    headerFormat = '',  # No header in the tooltip
+    # pointFormat defines what text shows: park name and death count
+    pointFormat = "<b>{point.park}</b><br/>Total Deaths: {point.total_deaths}"
+  ) %>%
+  # hc_mapNavigation adds zoom and pan controls to the map
+  hc_mapNavigation(enabled = TRUE) %>%
+  # hc_title adds a title at the top of the map
+  hc_title(text = "National Park Mortality Counts")
+```
+
+
+
+
+## Column {.tabset}
+
+### National Park Death Trends Search Tool
+```{r}
+MortalityData<- read.csv("../data/mortality_clean.csv")
+mortalityCount<- MortalityData%>%
+  group_by(park, death_cause, age_range) %>%
+  summarize(death_count=n())%>%
+  ungroup()%>%
+  arrange(desc(death_count))
+
+datatable(mortalityCount, options = list(pageLength = 5))
+
+```
+
+
+### Deaths by Cause and Age Range
+```{r fig.keep='none'} 
+mortality <- read.csv("../data/mortality_clean.csv")
+
+# summarizing cod by age
+cod_by_age <- mortality %>% 
+  group_by(cod, age_range) %>%  
+  summarize(mortality_count = n(), .groups = "drop")
+
+cod_order <- cod_by_age %>%
+  group_by(cod) %>%
+  summarize(total_mort = sum(mortality_count)) %>%
+  arrange(desc(total_mort))
+
+cod_by_age$cod <- factor(cod_by_age$cod, levels = cod_order$cod)
+
+#UI Function
+ui <- fluidPage( #creates a fluidPage
+  sidebarLayout( #creates sidebar on the left
+    sidebarPanel( #what's in the sidebar
+      selectInput("cod_choice", "Select Cause of Death:", 
+                  choices = levels(cod_by_age$cod)) #cod_choic is input ID, "Select Cause of Death:" is label shown, choices -- populate the dropdown with faactor levels from the cod column
+    ),
+    mainPanel( #starting the main panel
+      plotlyOutput("codPlot") #placeholder for a plotly plot
+    )
+  )
+)
+
+server <- function(input, output) { #server- takes inputs, produce output
+  output$codPlot <- renderPlotly({ #create reacative plotly output named "codPlot". everything INSIDE CURLY runs when the user changes the dropdown
+    
+    filtered <- cod_by_age %>% 
+      filter(cod == input$cod_choice) #only include rows where cod= user's selection
+    
+    p <- ggplot(filtered, aes(x = age_range, y = mortality_count)) +
+      geom_col() +
+      labs(
+        title = paste("Deaths by Age for:", input$cod_choice),
+        x = "Victim Age Group",
+        y = "Death Count"
+      ) +
+      theme_classic()
+    #ggplot of the filtered data 
+    ggplotly(p) #turns into plotly
+  })
+}
+
+shinyApp(ui, server) #ui=page layout for shiny, server= plotly 
+#runs the App using the UI and server we just defined
+```
+
+
+### Death Rate per 1 Million Visitors Across All Parks by Year 
+```{r} 
+
+# -------------------------------
+# Clean and merge data to calculate death rates
+# -------------------------------
+
+clean_park_name <- function(x) 
+  {x %>%
+str_to_lower() %>%
+str_remove_all("national park|national recreation area|national monument|
+national preserve|national seashore|national lakeshore") %>%
+str_remove_all("[^a-z ]") %>%
+str_squish()
+}
+
+mortality_clean <- read_csv("../data/mortality_clean.csv")
+death_counts <- mortality_clean %>%
+filter(year >= 2007, year <= 2016) %>%
+mutate(park_std = clean_park_name(park)) %>%
+group_by(park_std, year) %>%
+summarise(deaths = n(), .groups = "drop")
+
+NPVisitbyYearCleaned <- read_csv("../data/NPVisitbyYearCleaned.csv")
+visitor_totals <- NPVisitbyYearCleaned %>%
+rename(park = Parkname, year = YearRaw) %>%
+mutate(year = as.integer(year)) %>%
+filter(year >= 2007, year <= 2016) %>%
+mutate(park_std = clean_park_name(park)) %>%
+group_by(park_std, year) %>%
+summarise(total_visitors = sum(Visitors), .groups = "drop")
+
+death_rate_data <- visitor_totals %>%
+left_join(death_counts, by = c("park_std", "year")) %>%
+mutate(
+deaths = replace_na(deaths, 0),
+death_rate = ifelse(total_visitors > 0, deaths / total_visitors, NA_real_),
+death_rate_per_1000 = death_rate * 1000,
+death_rate_per_100000 = death_rate * 100000,
+death_rate_per_million = death_rate * 1e6
+)
+
+# Aggregate yearly deaths
+
+yearly_deaths <- death_rate_data %>%
+group_by(year) %>%
+summarise(
+total_deaths = sum(deaths, na.rm = TRUE),
+total_visitors = sum(total_visitors, na.rm = TRUE),
+death_rate_per_million = total_deaths / total_visitors * 1e6,
+.groups = "drop"
+)
+
+all_years <- data.frame(year = 2007:2016)
+yearly_deaths <- all_years %>%
+left_join(yearly_deaths, by = "year") %>%
+mutate(
+total_deaths = ifelse(is.na(total_deaths), 0, total_deaths),
+total_visitors = ifelse(is.na(total_visitors), 0, total_visitors),
+death_rate_per_million = ifelse(
+total_visitors > 0,
+total_deaths / total_visitors * 1e6,
+0
+)
+)
+
+shared_yearly_deaths <- SharedData$new(yearly_deaths)
+
+filter_slider(
+"year",
+"Select Year:",
+shared_yearly_deaths,
+~year
+)
+
+plot_ly(
+shared_yearly_deaths,
+x = ~year,
+y = ~death_rate_per_million,
+type = "scatter",
+mode = "lines+markers",
+height = 350, # ensures the plot is tall enough
+text = ~paste(
+"Year:", year,
+"<br>Total deaths:", total_deaths,
+"<br>Total visitors:", format(total_visitors, big.mark = ","),
+"<br>Death rate per 1M:", round(death_rate_per_million, 3)
+),
+hoverinfo = "text"
+) %>%
+layout(
+title = "Death Rate per 1 Million Visitors Across All Parks by Year",
+xaxis = list(
+title = "Year",
+tickmode = "array",
+tickvals = 2007:2016
+),
+yaxis = list(title = "Deaths per 1 Million Visitors") 
+)
+```
+

@@ -1,0 +1,33 @@
+---
+title: "Tutorial"
+author: "Neda Safari"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+    Interesting packages / techniques: Spend a bit more time on any parts that you found particularly interesting or exciting. Were there packages you used that were helpful that we haven’t talked about in class? Did you find out how to do anything that you think other students could use in the future? Did you end up writing a lot of functions to use? Did you have an interesting way of sharing code and data among your group members?
+    
+
+We mainly used the packages that were covered in the class, with a few exceptions, we used the naniar package for visualizing and handling the missing data pattern to help us understand the data integrity across our datasets. We also used the flexdashboard to create an interactive presentation of our results and display the results in a user friendly format. We used highcharter package to create an interactive map, and shinyapp to create our graphs.
+
+One of our project's strengths was our collaborative workflow. We established a clear data management system where cleaned datasets were regularly pushed to our repository, ensuring all team members had access to the most current data for building visualizations and maps. This prevented version control issues and kept everyone working from the same base. We took a modular approach to our analysis, and we used custom functions for creating the graphs. We focusing on clear, well-documented code that could be easily understood and modified by any team member.
+
+
+    
+    Lessons learned: If you were to do this project again from scratch, what would you do differently? Were there any big wrong turns along the way? Did you find out how to do something late in the project that would have saved you time if you’d started using it earlier?
+
+We used the gnis_id column as our primary column to join national park and mortality datasets, focusing on 2007-2016 based on data availability. Our strategy of creating separate files for each dataset (mortality, park visitations) that team members could update individually before merging was very helpful and we would maintain the same approach in future projects. We would also try to be more organized with all the files we created and the codes for each graph and map.
+
+If we were starting this project from scratch, we would spend more time at the start exploring data structure and compatibility. While our approach worked perfectly with the goal of our project, we encountered a challenge; the park names in the park visitation data did not align well with the park names in the mortality data. Discovering this mismatch midway through the project required us to rethink our spatial analysis strategy. Conducting a thorough exploratory data analysis of all datasets simultaneously at the project's outset would have revealed this issue earlier.
+
+
+Another unexpected hurdle was creating a cohesive map projection that integrated all 50 states, including Alaska and Hawaii. We had to research the projection options that would display the continental US, Alaska, and Hawaii in a visually integrated way without excessive distortion. Learning about the albersusa package or alternative projection techniques earlier would have saved us significant troubleshooting time.
+
+
+

@@ -1,0 +1,339 @@
+---
+title: "CleaningMortality"
+author: "Ainsley Lotito"
+date: "2025-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE) 
+library(readr)  
+library(dplyr)
+library(tidyverse)
+library(forcats)
+library(lubridate) 
+library(naniar) 
+library(plotly) 
+library(ggplot2)
+```
+
+
+## Mortality Data
+
+We will start by cleaning the mortality dataset from the national park service. 
+Let's start by reading in the data and looking at the columns. 
+
+```{r}
+mortality <- read_csv("../data/NPS-Mortality-Data-CY2007-to-CY2024-Released-August-2024.csv", col_names = TRUE)
+head(mortality) 
+dim(mortality)
+``` 
+
+Mortality read in correctly, we have 9 variables and 4,635 observations. 
+
+We need to reclassify some variables, rename them, and reclassify not reported information as NA. 
+```{r} 
+mortality <- mortality %>% 
+  mutate(incident_date = mdy(`Incident Date`),
+         year = year(incident_date)) %>% #creating year variable to aid with merging with other df
+  rename(park = `Park Name`,
+         death_cause = `Cause of Death`,
+         death_group = 4,
+         age_range = `Age Range`) %>% 
+  select(-1,) 
+colnames(mortality) <- tolower(colnames(mortality))
+head(mortality)
+``` 
+
+We are going to explore missing data by reclassifying "Undetermined" and "Not reported" data in a new dataframe and look through some patterns to see if specific causes of death have higher proportions of missing data. 
+```{r}
+#changing "Not Reported" to be NA in different dataset
+mortality_miss <- mortality %>% 
+  mutate(across(c(intent, death_group, death_cause),
+                ~ na_if(., "Undetermined")),
+         across(c(age_range, activity),
+                ~ na_if(., "Not Reported"))) 
+gg_miss_var(mortality_miss)
+gg_miss_upset(mortality_miss) 
+
+mortality_miss %>% 
+  mutate(missing = is.na(intent) & is.na(age_range) & is.na(activity)) %>% 
+  group_by(death_cause, missing) %>% 
+  count()
+
+mortality_miss %>% 
+  mutate(missing =  is.na(age_range)) %>% 
+  group_by(death_cause, missing) %>% 
+  count()
+
+#add on later to summarize by proportions and which have highest mortality counts
+```
+
+
+We are going to subset our data to include years 2007-2016 to be consistent with the other dataset.  
+```{r} 
+#seeing how many obs we are cutting out
+
+ mortality %>% 
+  filter(year %in% c(2020:2024)) %>% 
+   nrow()
+#we are cutting out 2017 ()
+
+mortality <- mortality %>% 
+  filter(year %in% c(2007:2019))
+dim(mortality) 
+unique(mortality$year) 
+```
+
+We now have 3,262 observations (it removed 1,373 obsevations)  
+
+
+# Exploratory analysis 
+
+We are interested in looking at patterns of mortality in our data before we join the datasets to think through maps that would be interesting. 
+First, we are going to plan out a chloropleth map that organizes mortality counts in the parks over the whole period (2007-2019) and by each year individually. 
+
+We will start by analyzing this with the summarize function first to look at which parks have the highest mortality counts over each year. 
+```{r}
+#raw count
+mortality %>% 
+  group_by(park) %>%  
+  summarize(mortality_count = n()) %>% 
+  arrange(desc(mortality_count))  
+
+
+#top 3 by year 
+mortality %>% 
+  group_by(park, year) %>%  
+  summarize(mortality_count = n(), .groups = "drop") %>% 
+  group_by(year) %>% 
+  slice_max(mortality_count, n = 3)
+
+``` 
+
+We also want to look into the causes of death and how those contribute to mortality counts. 
+```{r}
+#raw count
+mortality %>% 
+  group_by(death_group) %>%  
+  summarize(mortality_count = n()) %>% 
+  arrange(desc(mortality_count)) 
+
+#top 3 by year 
+mortality %>% 
+  group_by(death_group, year) %>%  
+  summarize(mortality_count = n(), .groups = "drop") %>% 
+  group_by(year) %>% 
+  slice_max(mortality_count, n = 3) 
+
+#let's do it again by age group 
+#raw count
+mortality %>% 
+  group_by(death_group, age_range) %>%  
+  summarize(mortality_count = n()) %>% 
+  arrange(desc(mortality_count)) 
+
+#top 3 by year 
+mortality %>% 
+  group_by(death_group, age_range, year) %>%  
+  summarize(mortality_count = n(), .groups = "drop") %>% 
+  group_by(year) %>% 
+  slice_max(mortality_count, n = 3)  
+
+#top 3 by park 
+mortality %>% 
+  group_by(death_group, age_range, park) %>%  
+  summarize(mortality_count = n(), .groups = "drop") %>% 
+  group_by(death_group,age_range) %>% 
+  slice_max(mortality_count, n = 1) 
+``` 
+
+Let's explore some leaflet bar charts with different information on cause of death.  
+
+```{r}
+library(plotly)
+
+#starting simple plot  
+cod_count <- mortality %>% 
+  group_by(death_group) %>%  
+  summarize(mortality_count = n(), .groups = "drop")
+
+cod_plot <-plot_ly(
+  data = cod_count,
+  x = ~death_group,
+  y = ~mortality_count, 
+  name = "Death Counts by Cause of Death", 
+  type = "bar"
+) 
+cod_plot <- cod_plot %>% layout(yaxis = list(title = 'Mortality Count'), barmode = 'group') %>% layout(xaxis = list(title = 'Cause of Death'), barmode = 'group')
+
+cod_plot
+``` 
+We can probably condense "Legal Intervention" in the Other category since there are only 2 deaths over the entire period. These deaths are due to people being killed or dying as a result of injuries from a law enforcement officer. 
+
+We are going to condense the Medical categories together, since there is no information about whether the PA caused the medical event to occur, just that it happened simultaneously. 
+
+I am going to create a new variable that has these cleaned up, and then summarize before creating a new basic plot then moving on with more details. 
+
+```{r}
+mortality <- mortality %>% 
+  mutate(cod = case_when( 
+    # Medical
+    death_group %in% c("Medical - Not during physical activity", "Medical - Unknown", "Medical - During physical activity") ~ "Medical", 
+    
+    #Condensing Legal Intervention with Other
+    death_group %in% c("Legal Intervention", "Other") ~ "Other", 
+    
+    #All other categories Consistent
+    TRUE ~ death_group #keep original death_group codings
+  ))
+```
+
+### Saving cleaned dataset 
+We are going to save the cleaned mortality df to our data folder so it can be joined with the National Park dataframe for future analysis. 
+
+```{r}
+write.csv(mortality, "../data/mortality_clean.csv", row.names = TRUE)
+```
+
+
+Now, let's create two new plots with the new categorization: 
+```{r} 
+#COD
+#starting simple plot  
+cod_count <- mortality %>% 
+  group_by(cod) %>%  
+  summarize(mortality_count = n(), .groups = "drop")
+
+cod_plot <-plot_ly(
+  data = cod_count,
+  x = ~cod,
+  y = ~mortality_count, 
+  name = "Death Counts by Cause of Death", 
+  type = "bar"
+) 
+cod_plot <- cod_plot %>% layout(yaxis = list(title = 'Mortality Count'), barmode = 'group') %>% layout(xaxis = list(title = 'Cause of Death'), barmode = 'group')
+
+cod_plot 
+
+```  
+
+Now, I want to explore how cause of death changes based on some other facets. 
+I want to explore how the distribution of deaths by age group change depending on COD (facet by COD, bars are age groups).  
+```{r cod_by_age, fig.height = 25, fig.width = 9}
+ 
+#plotting 
+p_age <- ggplot(cod_by_age, aes(x = age_range, y = mortality_count)) +
+  geom_col() +
+  facet_wrap(~ cod, ncol = 2, scales = "free_x") +
+  labs(title = "Death Counts by Cause of Death and Age",
+       x = "Victim Age Group", 
+       y = "Death Count") + 
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+    scale_y_continuous(breaks = c(seq(from = 0, to = 200, by = 25)
+)) +
+  theme(axis.text.x = element_text (size = 8),
+        strip.text = element_text(size = 11, face = "bold"))
+
+cod_by_age_plot <- ggplotly(p_age)
+cod_by_age_plot  
+
+#look into shiny embedding https://testing-apps.shinyapps.io/flexdashboard-shiny-embedding/
+
+```  
+
+```{r}
+mortality <- read.csv("../data/mortality_clean.csv")
+
+
+#shiny in here 
+library(shiny)
+
+# summarizing cod by age
+cod_by_age <- mortality %>% 
+  group_by(cod, age_range) %>%  
+  summarize(mortality_count = n(), .groups = "drop")
+
+cod_order <- cod_by_age %>%
+  group_by(cod) %>%
+  summarize(total_mort = sum(mortality_count)) %>%
+  arrange(desc(total_mort))
+
+cod_by_age$cod <- factor(cod_by_age$cod, levels = cod_order$cod)
+
+#UI Function
+ui <- fluidPage( #creates a fluidPage
+  sidebarLayout( #creates sidebar on the left
+    sidebarPanel( #what's in the sidebar
+      selectInput("cod_choice", "Select Cause of Death:", 
+                  choices = levels(cod_by_age$cod)) #cod_choic is input ID, "Select Cause of Death:" is label shown, choices -- populate the dropdown with faactor levels from the cod column
+    ),
+    mainPanel( #starting the main panel
+      plotlyOutput("codPlot") #placeholder for a plotly plot
+    )
+  )
+)
+
+server <- function(input, output) { #server- takes inputs, produce output
+  output$codPlot <- renderPlotly({ #create reacative plotly output named "codPlot". everything INSIDE CURLY runs when the user changes the dropdown
+    
+    filtered <- cod_by_age %>% 
+      filter(cod == input$cod_choice) #only include rows where cod= user's selection
+    
+    p <- ggplot(filtered, aes(x = age_range, y = mortality_count)) +
+      geom_col() +
+      labs(
+        title = paste("Deaths by Age for:", input$cod_choice),
+        x = "Victim Age Group",
+        y = "Death Count"
+      ) +
+      theme_classic()
+    #ggplot of the filtered data 
+    ggplotly(p) #turns into plotly
+  })
+}
+
+shinyApp(ui, server) #ui=page layout for shiny, server= plotly 
+#runs the App using the UI and server we just defined
+
+#note: when setting up, make sure to include runtime:shiny???
+#---
+#title: "COD Dashboard"
+#output: 
+ # flexdashboard::flex_dashboard:
+ #   orientation: columns
+#runtime: shiny
+#---
+
+```
+
+
+
+This is the plot option that we decided to put in our flexdashboard, so there is some extra code cleaning it up. I also am going to continue exploration below, but we didn't end up using any of the following maps. 
+
+
+
+Now, I want to look at which Parks have the highest death count for each of these categories. For each COD, I am going to show the Parks with the top 5-10 death counts for each COD.  
+```{r, fig.width = 8, fig.height = 7}
+cod_park <- mortality %>% 
+  group_by(cod, park, age_range) %>%  
+  summarize(mortality_count = n(), .groups = "drop") %>% 
+  group_by(cod, park) %>% 
+  slice_max(mortality_count, n = 3) 
+
+p <- ggplot(cod_park, aes(
+  x = age_range,
+  y = mortality_count,
+  fill = park,
+  text = paste("Park:", park,
+               "<br>Age Range:", age_range,
+               "<br>Count:", mortality_count)
+)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~cod) +
+  labs(x = "Age Range", y = "Mortality Count") +
+  theme_bw()
+
+ggplotly(p, tooltip = "text")
+```
