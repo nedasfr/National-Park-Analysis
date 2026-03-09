@@ -42,16 +42,13 @@ thm <-
 
 ```
 
-
-
 # About This Dashboard {data-length="225"}
 
-The source of this data was the Tidy Tuesday data set involving national park visitation rates and boundaries, combined with National Park Service (NPS) mortality data. This dashboard allows exploration of park-level death counts, common causes of death, and age groups most frequently affected, providing insight into safety trends and potential risk factors for visitors. 
+The source of this data was the Tidy Tuesday data set involving national park visitation rates and boundaries, combined with National Park Service (NPS) mortality data. This dashboard allows exploration of park-level death counts, common causes of death, and age groups most frequently affected, providing insight into safety trends and potential risk factors for visitors.
 
 The *Interactive Mortality Map* displays total deaths at all U.S. national parks. Users can zoom in, hover over parks to see death counts, and compare relative risk across locations. The *National Park Death Trends Search Tool* provides individual park death counts, including associated age ranges and causes of death. The *Deaths by Cause and Age Range* from the cause of death drop-down menu to explore how deaths are distributed across age ranges.The *Death Rate per 1 Million Visitors Across All Parks by Year* plot provides a visitor-adjusted view of mortality trends over time, allowing users to track changes in death rates by year.
 
 Interestingly, we found that of drowning deaths in national parks, many were within the 15-24 age range instead of the expected 0-14 age range. This is likely due to the heightened awareness and regulations surrounding drowning safety in children, while these are softened in teenagers and young adults. Also, other factors such as alcohol could affect the increase in drowning deaths in this age group.
-
 
 ## Column {data-width="600"}
 
@@ -92,12 +89,10 @@ hcmap("countries/us/us-all",
   hc_title(text = "National Park Mortality Counts")
 ```
 
-
-
-
 ## Column {.tabset}
 
 ### National Park Death Trends Search Tool
+
 ```{r}
 MortalityData<- read.csv("../data/mortality_clean.csv")
 mortalityCount<- MortalityData%>%
@@ -110,9 +105,9 @@ datatable(mortalityCount, options = list(pageLength = 5))
 
 ```
 
-
 ### Deaths by Cause and Age Range
-```{r fig.keep='none'} 
+
+```{r fig.keep='none'}
 mortality <- read.csv("../data/mortality_clean.csv")
 
 # summarizing cod by age
@@ -163,9 +158,9 @@ shinyApp(ui, server) #ui=page layout for shiny, server= plotly
 #runs the App using the UI and server we just defined
 ```
 
+### Death Rate per 1 Million Visitors Across All Parks by Year
 
-### Death Rate per 1 Million Visitors Across All Parks by Year 
-```{r} 
+```{r}
 
 # -------------------------------
 # Clean and merge data to calculate death rates
@@ -264,4 +259,3 @@ tickvals = 2007:2016
 yaxis = list(title = "Deaths per 1 Million Visitors") 
 )
 ```
-
