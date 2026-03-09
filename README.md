@@ -1,6 +1,3 @@
----
-output: github_document
----
 # National Park Analysis 
 
 ## Data Cleaning 
