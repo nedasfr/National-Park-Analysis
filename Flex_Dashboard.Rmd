@@ -27,7 +27,7 @@ library(crosstalk)
 library(DT)
 library(ggplot2)
 
-# Highcharter theme
+# Highcharter theme 
 thm <- 
   hc_theme(
     colors = c("#1a6ecc", "#434348", "#90ed7d"),
